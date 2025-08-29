@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id         String    @id
+  email      String    @unique
+  username   String?    @unique
+  firstName  String?    @map("first_name")
+  lastName   String?    @map("last_name")
+  bio        String?   @db.VarChar(160)
+  avatarUrl  String?   @map("avatar_url")
+  website    String?
+  location   String?
+  role       Role      @default(USER)
+  isActive   Boolean   @default(true) @map("is_active")
+  isVerified Boolean   @default(false) @map("is_verified")
+  lastLogin  DateTime? @map("last_login")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  posts                 Post[]
+  comments              Comment[]
+  likes                 Like[]
+  receivedNotifications Notification[] @relation("NotificationRecipient")
+  sentNotifications     Notification[] @relation("NotificationSender")
+
+  // Follow relationships
+  followers Follow[] @relation("UserFollowers")
+  following Follow[] @relation("UserFollowing")
+
+  @@map("users")
+}
+
+model Post {
+  id           String       @id @default(cuid())
+  content      String       @db.VarChar(280)
+  imageUrl     String?      @map("image_url")
+  category     PostCategory @default(GENERAL)
+  isActive     Boolean      @default(true) @map("is_active")
+  likeCount    Int          @default(0) @map("like_count")
+  commentCount Int          @default(0) @map("comment_count")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  authorId      String         @map("author_id")
+  author        User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments      Comment[]
+  likes         Like[]
+  notifications Notification[]
+
+  @@map("posts")
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String   @db.VarChar(200)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  authorId String @map("author_id")
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  postId   String @map("post_id")
+  post     Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+}
+
+model Like {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId String @map("post_id")
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@map("likes")
+}
+
+model Follow {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  followerId  String @map("follower_id")
+  follower    User   @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String @map("following_id")
+  following   User   @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@map("follows")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  type      NotificationType @map("notification_type")
+  message   String           @db.VarChar(200)
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  recipientId String  @map("recipient_id")
+  recipient   User    @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  senderId    String  @map("sender_id")
+  sender      User    @relation("NotificationSender", fields: [senderId], references: [id], onDelete: Cascade)
+  postId      String? @map("post_id")
+  post        Post?   @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@map("notifications")
+}
+
+// Enums
+enum Role {
+  USER
+  ADMIN
+}
+
+enum PostCategory {
+  GENERAL
+  ANNOUNCEMENT
+  QUESTION
+}
+
+enum NotificationType {
+  FOLLOW
+  LIKE
+  COMMENT
+  POST
+}
