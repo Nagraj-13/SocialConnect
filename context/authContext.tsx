@@ -49,6 +49,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   );
   const [loading, setLoading] = useState(true);
 
+  // helper to check user's role from your `users` table in Supabase
+  const checkAndRedirectRole = async (userId: string | undefined | null) => {
+    if (!userId) return;
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", userId)
+        .single();
+
+      if (!error && data?.role === "ADMIN") {
+        router.replace("/admin"); // send admins to admin page
+      } else {
+        // Non-admin: go to homepage (or previous location)
+        router.replace("/");
+      }
+    } catch (err) {
+      console.error("role check error", err);
+      router.replace("/");
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
 
@@ -71,6 +93,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           });
           setJwt(session.access_token);
           localStorage.setItem("sc_access_token", session.access_token);
+
+       
+          await checkAndRedirectRole(u.id);
         } else {
           setUser(null);
           setJwt(null);
@@ -89,7 +114,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     init();
 
     const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, _session) => {
+      async (_event, _session) => {
+        // update token
         supabase.auth.getSession().then(({ data }) => {
           const s = data?.session;
           if (s?.access_token) {
@@ -101,15 +127,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           }
         });
 
-        supabase.auth.getUser().then((res) => {
+        // update user object and redirect if admin
+        supabase.auth.getUser().then(async (res) => {
           const u = res.data.user;
-          if (u)
+          if (u) {
             setUser({
               id: u.id,
               email: u.email,
               user_metadata: u.user_metadata ?? null,
             });
-          else setUser(null);
+            // check role & redirect if admin
+            await checkAndRedirectRole(u.id);
+          } else {
+            setUser(null);
+          }
         });
       }
     );
@@ -118,7 +149,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       mounted = false;
       listener?.subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, [supabase, router]);
 
   const login = async (email: string, password: string) => {
     setLoading(true);
@@ -141,8 +172,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           email: data.user.email,
           user_metadata: data.user.user_metadata ?? null,
         });
-        toast.success("Logged in successfully! ");
-        router.replace("/");
+
+        // After login, check role and redirect:
+        await checkAndRedirectRole(data.user.id);
+        toast.success("Logged in successfully!");
       } else {
         toast.info("Check your email to confirm your account");
       }
@@ -164,16 +197,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: meta ?? {} }, 
+        options: { data: meta ?? {} },
       });
-      console.log("Data and Error",data, error)
       if (error) {
         toast.error(error.message || "Signup failed");
         return;
       }
 
       if (data?.user && data?.session) {
-       const res= await fetch("/api/users/create", {
+        // create "users" row server-side (you already do this in your flow)
+        const res = await fetch("/api/users/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -181,10 +214,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             email: data.user.email,
             username: data.user.user_metadata?.username,
             firstName: data.user.user_metadata?.firstName,
-            lastName:data.user.user_metadata?.lastName,
+            lastName: data.user.user_metadata?.lastName,
           }),
         });
-        console.log("Response : ",res)
+
         setUser({
           id: data.user.id,
           email: data.user.email,
@@ -193,7 +226,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setJwt(data.session.access_token);
         localStorage.setItem("sc_access_token", data.session.access_token);
         toast.success("Signed up and logged in");
-        router.replace("/");
+        // if admin, redirect (rare for signup flow)
+        await checkAndRedirectRole(data.user.id);
       } else {
         toast.success("Account created. Check your email to confirm.");
       }
